@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CSF/LSF</title>
+    <style>
+        #drop-zone {
+            width: 300px;
+            height: 200px;
+            border: 2px dashed #ccc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            margin: 20px auto;
+        }
+        #output {
+            display: block;
+            margin: 20px auto;
+        }
+    </style>
+</head>
+<body>
+    <div id="drop-zone">ここに CSF/LSF をドロップしてください</div>
+    <div id="file-content"></div>
+    <textarea id="output" cols="100" rows="20"></textarea>
+    <script>
+
+
+    function sprint_csf( e ) {
+    
+        let outstring ;
+    
+       // header
+        outstring =  "Cluster Summay File from PE\n" 
+                  +  `Prism Element : version ${e["version"]}\n` 
+                  +  `  Cluster UUID: ${e["cluster_uuid"]}\n`
+                  +  `  Cluster Name: ${e["cluster_name"]}\n`   
+                  +  `  AOS Version : ${e["cluster_version"]}\n` ;
+    
+    
+        if( "capacity" in e ) {
+            let c = e["capacity"];
+    
+            outstring += "  Capacity:\n" 
+                      +  `    # of Nodes    : ${c["num_nodes"]}\n` 
+                      +  `    # of Cores    : ${c["num_cores"]}\n`
+                      +  `    SSD Size(TiB) : ${c["ssd_size_tebibytes"]}\n` ;
+    
+            if( ( "file_size_tebibytes" in c ) && c["file_size_tebibytes"] > 0 ) {
+                outstring += `    Files Usage(TiB) : ${c["file_size_tebibytes"]}`; 
+            }
+            if( ( "flow_num_protected_nodes" in c ) && c["flow_num_protected_nodes"] > 0 ) {
+                outstring += `    Flow nodes       : ${c["flow_num_protected_nodes"]}`; 
+            }
+            if( ( "calm_num_required_packs" in c ) && c["calm_num_required_packs"] > 0 ) {
+                outstring += `    Calm nodes      : ${c["calm_num_required_packs"]}`; 
+            }
+    
+        }else{
+           outstring += "  Capacity: ** Capacity Section not found!! **\n" ;
+        }
+
+        if ( "node_list" in e ) {
+            let models = {} ;
+            let blocks = {} ;
+
+            for( nn in e["node_list"] ) {
+                let n = e["node_list"][nn];
+                if( ! ( n["model"] in models  ) ) {
+                    models[ n["model"] ] = [];
+                }
+                models[ n["model"] ].push( n["block_serial"] );
+                blocks[ n["block_serial"] ] = n;
+            }
+
+            outstring += "  Blocks:\n";
+
+            for( m in models ) {
+                outstring += `    Model: ${m}\n`;
+
+                for( bn in  models[ m ] ){
+                    let b = models[m][bn];
+                    let c = blocks[b]["capacity"];
+                    outstring += `        ${b} (${c["num_nodes"]} nodes): ${c["num_cores"]} cores, ${c["ssd_size_tebibytes"]} TiB SSD\n`;
+               } 
+           } 
+       } 
+        return outstring;
+    }
+    
+    
+    function sprint_pnp2_csf( e ) {
+        let outstring ;
+
+        outstring =  "Cluster Summay File from PC\n" 
+                  +  `Prism Central : version ${e["csfVersion"]}\n`
+                  +  `PC Cluster UUID  : ${e["uuid"]}\n`
+                  +  `PC Cluster Name  : ${e["name"]}\n`
+                  +  `PC Version       : ${e["softwareVersions"]["pc"]} / NCC: ${e["softwareVersions"]["ncc"]}\n`
+                  +  `one-click enabled: ${e["oneClickEnabled"]}\n`
+                  +  `Clusters: ${e["clusters"].length} clusters\n`
+
+        for( cn in e["clusters"] ) {
+            c = e["clusters"][cn];
+
+            outstring += "    --- \n" 
+                      +  `    Cluster UUID: ${c["uuid"]}\n`
+                      +  `    Cluster Name: ${c["name"]}\n` 
+                      +  `    AOS Version : ${c["softwareVersions"]["aos"]} / NCC: ${c["softwareVersions"]["ncc_version"]}\n`
+
+            let models    = {}
+            let blocksums = {}
+            let nodes     = {}
+            let total_cores = 0
+            let total_ssd_tebibytes = 0
+
+
+            for( nn in c["nodes"] ) {
+                n = c["nodes"][nn];
+                if( ! ( n["modelName"] in models ) ) {
+                    models[ n["modelName"] ] = {};
+                }
+                if( ! ( n["blockSerialName"] in models[ n["modelName"] ] ) ) {
+                    models[ n["modelName"] ][ n["blockSerialName"] ] = [];
+                }
+                models[ n["modelName"] ][ n["blockSerialName"] ].push( n["uuid"] )
+                nodes[ n["uuid"] ] = n
+
+                total_cores +=  n["physicalCapacity"]["cores"]
+                total_ssd_tebibytes += Number( n["physicalCapacity"]["storage"]["ssd"] )
+
+
+                if( ! ( n["blockSerialName"] in blocksums ) ) {
+                    blocksums[ n["blockSerialName"] ] = { "core": 0 , "ssd": 0.0 }
+                }
+                blocksums[ n["blockSerialName"] ]["core"] += n["physicalCapacity"]["cores"]
+                blocksums[ n["blockSerialName"] ]["ssd"] += Number( n["physicalCapacity"]["storage"]["ssd"] )
+            }
+
+            outstring +=  "    Capacity: \n"
+                      +   `      # of Nodes    : ${c["nodes"].length}\n`
+                      +   `      # of Cores    : ${total_cores}\n`
+                      +   `      SSD Size(TiB) : ${total_ssd_tebibytes.toFixed(2)}\n`
+            if( "logicalCapacities" in c ) {
+                for( ln in c["logicalCapacities"] ) {
+                    lc = c["logicalCapacities"][ln];
+                    outstring += `      ${lc["capacityType"]} : ${lc["value"]}\n`;
+                }
+            }
+            outstring += "    Nodes:\n";
+            for( m in models ) {
+                for( b in models[ m ]  ) {
+                    let sum = blocksums[ b ];
+                    
+                    if( models[m][b].length == 1 ) {
+                         // xU1N
+                         outstring += `          ${b} : ${sum["core"]} cores, ${sum["ssd"]} TiB SSD\n`
+                    }else{
+                         // xUyN
+                         outstring += `         ${b} (${models[m][b].length} nodes): ${sum["core"]} cores, ${sum["ssd"]} TiB SSD\n`
+                         for( un in models[m][b] ){
+                            let u = models[m][b][un]
+                            let n = nodes[u];
+                            let c = n["physicalCapacity"];
+                            outstring += `              ${c["cores"]} cores, ${c["storage"]["ssd"]} TiB SSD\n`
+                        }
+                    }
+                }
+           } 
+       }
+       return outstring; 
+    }
+    
+    
+    
+    // LSF
+    const PU = [ "Pro" , "Ultimate" , "Starter" ];
+    
+    
+    function sprint_lsf( e ) {
+    
+        let outstring ;
+    
+        if( ( "license_mode" in e ) && ( e["license_mode"] == "node" ) ) {
+            outstring = "License Summay File for PE\n"
+                      + `Prism Element : version ${e["license_version"]}, license_mode = node\n`
+                      + `  Cluster UUID: ${e["cluster_uuid"]}\n`
+                      + `  Node License : Acropolis ${e["cluster_license_type"]["license_category"]}\n`;
+            return outstring;        
+        }
+        outstring += `Prism Element : version ${e["license_version"]}\n`
+                  +  `  Cluster UUID: ${e["cluster_uuid"]}\n`
+    
+        for( cn in e["cluster_license_list"] ) {
+            let cl_list = e["cluster_license_list"][cn];
+            if( ( "license_category" in cl_list ) && ( cl_list["license_category"] in PU ) ) {
+                outstring += `    Contained License : Acropolis ${cl_list["license_category"]}\n` ;
+            }else{
+                outstring += `    Contained License : ${cl_list["license_category"]}\n` ;
+            }
+    
+        }
+    
+        // 
+        // Total
+        // 
+        let c = e["licensed_capacity"]
+        outstring += "Total Licensed Capacity:\n" 
+                  +  `    # of Nodes    : ${c["num_nodes"]}\n`
+                  +  `    # of Cores    : ${c["num_cores"]}\n`;
+    
+        if( "num_user_vm" in c ) {
+            outstring += `    # of User VMs : ${c["num_user_vm"]}\n` ;
+        }
+    
+        outstring += `    SSD Size(TiB) : ${c["ssd_size_tebibytes"]}\n`;
+    
+        if( ( "file_size_tebibytes" in c ) && ( c["file_size_tebibytes"] ) ) {
+            outstring +=`    Files Usage(TiB) : ${c["file_size_tebibytes"]}\n` ;
+        }
+        if( ( "bucket_size_tebibytes" in c) && ( c["bucket_size_tebibytes"] > 0 ) ) {
+            outstring += `    Objects Usage(TiB) : ${c["bucket_size_tebibytes"]}\n`;
+        }
+        if( ( "bucket_pro_size_tebibytes" in c) && ( c["bucket_pro_size_tebibytes"] ) ) { 
+            outstring += `    Objects Usage(TiB) :: ${c["bucket_pro_size_tebibytes"]} (Pro)\n`;
+        }
+        if( ( "flow_num_protected_nodes" in c) &&  ( c["flow_num_protected_nodes"] ) ) {
+            outstring +=`    Flow nodes       :: ${c["flow_num_protected_nodes"]}\n`;
+        }
+        if( ( "calm_num_required_packs" in c ) && ( c["calm_num_required_packs"] ) ) {
+            outstring += `    Calm nodes       : ${c["calm_num_required_packs"]}\n`;
+        } 
+    
+       // NBLs
+        if( ( "node_license_list" in e ) && (  e["node_license_list"].length > 0 ) ) {
+            let ne_list = {};
+            let nodes = {} ;
+            for( ln in e["node_license_list"] ) {
+                let n = e["node_license_list"][ln];
+                if( ! ( n["expiry_date_time"] in ne_list ) ) {
+                    ne_list[ n["expiry_date_time"] ] = [] ;
+                }
+                ne_list[ n["expiry_date_time"] ].push( n["license_id"] );
+                nodes[ n["license_id"] ] = n ;
+            }
+            outstring += "Node Base Licenses:\n" ;
+            for( ne in ne_list ) {
+                outstring += `  Expire date: ${ne}\n`
+                for( ln in ne_list[ne] ) {
+                    n = nodes[ ne_list[ne][ln] ];
+                    outstring += `    ${n["license_id"]} : ${n["model"]} : Acropolis ${n["node_license_type"]["license_category"]}\n`
+                }
+            }
+        }
+    
+       // CBLs 
+        let le_list = {};
+        let licenses = {};
+        for( ln in e["license_list"] ) {
+            let l = e["license_list"][ln];
+            if( ! ( l["expiry_date_time"] in le_list ) ){
+                le_list[ l["expiry_date_time"] ] = [] ;
+            }
+           le_list[ l["expiry_date_time"] ].push( l["license_id"] );
+           licenses[ l["license_id"] ] = l;
+        }
+    
+        outstring += "Capacity Base Licenses:\n" ;
+        for( le in le_list ) {
+              //le = le_list[ln];
+              outstring += `  Expire date: ${le}\n`
+              for( ln in le_list[le] ) {
+                   l = licenses[ le_list[le][ln] ];
+                   if( l["license_category"] in PU ) {
+                       outstring += `    ${l["license_id"]}: Acropolis ${l["license_category"]} , ${l["attribute"]} ${l["quantity"]})\n`;
+                   }else if (l["license_category"] == "File" ) {
+                       outstring += `    ${l["license_id"]}: FILE ${l["quantity"]} ${l["attribute"]}\n`;
+                   }else{
+                       let sub, qua, att;
+                       if( "license_sub_category" in l ){
+                           sub = l["license_sub_category"];
+                        }else{
+                           sub = "-";
+                        }
+    
+                        if( "quantity" in l ){
+                           qua = l["quantity"];
+                        }else{
+                           qua = "-";
+                        }
+                        if( "attribute" in l ) {
+                           att = l["attribute"];
+                        }else{
+                           att = "-";
+                       }
+                       outstring += `    ${l["license_id"]}: ${l["license_category"]} ${sub} , ${qua} ${att}\n`;
+                  } 
+              } 
+        }
+    
+        return outstring 
+    }
+    
+    
+    
+    function sprint_pnp2_lsf( e ) {
+    }
+    
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const dropZone = document.getElementById('drop-zone');
+        const fileContent = document.getElementById('file-content');
+
+        dropZone.addEventListener('dragover', (event) => {
+            event.preventDefault();
+            dropZone.style.borderColor = 'blue';
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.style.borderColor = '#ccc';
+        });
+
+        dropZone.addEventListener('drop', (event) => {
+            event.preventDefault();
+            dropZone.style.borderColor = '#ccc';
+
+            const files = event.dataTransfer.files;
+            if (files.length > 0) {
+                const file = files[0];
+                const reader = new FileReader();
+
+                reader.onload = (e) => {
+                    var outstring = "";
+                    var csf_data = JSON.parse( e.target.result );
+
+                    if ( "csfVersion" in csf_data ) {
+                        outstring = sprint_pnp2_csf( csf_data )
+
+                    } else if ( "lsfVersion" in csf_data ) {
+                        outstring = sprint_pnp2_lsf( csf_data )
+
+                    } else if ( "license_version" in csf_data ) {
+                        outstring = sprint_lsf( csf_data );
+
+                    } else if ( "version" in csf_data ){
+                        outstring = sprint_csf( csf_data );
+
+                    } else {
+                       // ignore 
+                    }
+                    document.getElementById( "output" ).value  = outstring;
+                };
+                reader.readAsText(file);
+            }
+        });
+    });
+
+    </script>
+</body>
+</html>

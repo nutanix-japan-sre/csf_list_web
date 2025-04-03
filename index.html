@@ -302,13 +302,111 @@
     
         return outstring 
     }
-    
-    
+   
+    function sprint_licensedetails( cl ) {
+        let outstring = "" ;
+
+        for( ln in cl ) {
+            let l = cl[ln];
+            if( ( l["type"] == "AOS" ) || ( l["type"] == "NCI" ) ) {
+                if( "metadata" in l ) {
+                    outstring += `     ${l["type"]} ${l["category"]} , ${l["capacity"]["quantity"]} ${l["capacity"]["meter"]} , expire date ${l["expiryDate"]}\n` ;
+                    for( mi in l["metadata"] ) {
+                        let m = l["metadata"][mi];
+                        outstring += `      from license ${m["id"]} , used ${m["used"]}\n`;
+                    }
+                }else{
+                    outstring += `     ${l["type"]} ${l["category"]} , ${l["capacity"]["quantity"]} ${ l["capacity"]["meter"]} , expire date ${l["expiryDate"]}\n` ;
+                }
+                for( n in l["capacity"]["nodes"] ) {
+                    outstring += `      for nodes ${l["capacity"]["nodes"][n]}\n`;
+                }
+            } else if( ( l["type"] == "FILE" ) || ( l["type"] ==  "NUS" ) ) {
+                outstring += `     ${l["name"]} , expire date ${l["expiryDate"]}\n`;
+                if( "metadata" in l ) {
+                    for( mi in l["metadata"] ) {
+                        let m = l["metadata"][mi];
+                        outstring += `      from license ${m["id"]} , used ${m["used"]}\n` ;
+                    }
+                }
+            } else {
+                if( ( "capacity" in l ) && ( l["capacity"].length > 0 ) ){
+                    outstring += `     ${l["type"]} ${l["category"]} , ${l["capacity"]["quantity"]} ${l["capacity"]["meter"]} , expire date ${l["expiryDate"]}\n` ;
+                }else{
+                    outstring += `     ${l["type"]} ${l["category"]} , expire date ${l["expiryDate"]}\n` ;
+                }
+            }
+        }
+        return outstring ; 
+    } 
+   
     
     function sprint_pnp2_lsf( e ) {
+        let outstring ;
+
+        outstring = "License Summay File for PC\n" 
+                  + `Prism Central : version ${e["lsfVersion"]}\n` ;
+
+        let le_list  = {};
+        let licenses = {};
+
+        for( ln in e["licenses"] ) {
+            let l = e["licenses"][ln];
+            if( ! ( l["expiryDate"] in le_list ) ) {
+                le_list[ l["expiryDate"] ] = [] ;
+            }
+            le_list[ l["expiryDate"] ].push( l["id"] ) ;
+            licenses[ l["id"] ] = l ;
+        }
+        
+        outstring += "Contained Licenses:\n";
+
+        for( le in le_list ) {
+
+            outstring +=  `  Expire date: ${le}\n`;
+            for( ln in le_list[le] ) {
+                let ls = le_list[le][ln]; 
+                let l = licenses[ ls ] ;
+
+                if( ( l["type"] == "AOS" ) || ( l["type"] == "NCI" ) ) {
+                    // Type, Category, meter, quantity, expiredate
+                    outstring += `    ${l["id"]}: ${l["type"]} ${l["category"]} , ${l["quantity"]} ${l["meter"] }\n`;
+
+                }else if ( (l["type"] == "FILE" ) || ( l["type"].indexOf( "NUS" ) == 0 ) ) {
+                    outstring += `    ${l["id"]}: ${ l["name"]} , ${l["quantity"]} ${l["meter"]}\n`;
+
+                }else {
+                    outstring += `    ${l["id"]}: ${l["type"]} ${l["category"]} , ${l["quantity"]} ${l["meter"] }\m`;
+
+                }
+            }
+        }
+
+        let cl_list = {};
+        for( cn in e["clusters"] ) {
+            c = e["clusters"][cn];
+            if( ! ( c["uuid"] in cl_list ) ) {
+                 cl_list[ c["uuid"] ] = [] ;
+            }
+            for( ln in c["licenseDetails"] ) {
+                cl_list[ c["uuid"] ].push(  c["licenseDetails"][ln] ) ;
+            }
+        }
+        outstring += "Cluster and License usage:\n";
+
+        for( cu in cl_list ) {
+            outstring += `  Cluster UUID: ${cu}\n`;
+            outstring += sprint_licensedetails( cl_list[ cu ] );
+        }
+    
+        if( "licenseDetails" in e ) {
+            outstring += "  Under the PC:\n" ;
+            outstring += sprint_licensedetails( e["licenseDetails"] );
+        }
+
+        return outstring ;
     }
     
-
     document.addEventListener('DOMContentLoaded', () => {
         const dropZone = document.getElementById('drop-zone');
         const fileContent = document.getElementById('file-content');

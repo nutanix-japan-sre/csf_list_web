@@ -330,7 +330,7 @@
                     }
                 }
             } else {
-                if( ( "capacity" in l ) && ( l["capacity"].length > 0 ) ){
+                if( "capacity" in l ){
                     outstring += `     ${l["type"]} ${l["category"]} , ${l["capacity"]["quantity"]} ${l["capacity"]["meter"]} , expire date ${l["expiryDate"]}\n` ;
                 }else{
                     outstring += `     ${l["type"]} ${l["category"]} , expire date ${l["expiryDate"]}\n` ;
